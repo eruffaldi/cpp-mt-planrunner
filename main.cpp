@@ -12,22 +12,27 @@ int main(int argc, char const *argv[])
 {
 	Scheduler s(argv[1]);
 
+	int q = 0;
+
 	s << 1 << [&] {
-		{lockio x; std::cerr << "i1A\n"; }
+		{lockio x; std::cerr << "i1A " << q << "\n"; }
+		q = 1;
 		usleep(10000);
-		{lockio x; std::cerr << "i1B\n"; }
+		{lockio x; std::cerr << "i1B " << q << "\n"; }
 	}	;
 
 	s << 2 << [&] {
-		{lockio x; std::cerr << "i2A\n"; }
+		{lockio x; std::cerr << "i2A " << q << "\n"; }
+		q = 2;
 		usleep(20000);
-		{lockio x; std::cerr << "i2B\n"; }
+		{lockio x; std::cerr << "i2B " << q << "\n"; }
 	}	;
 
 	s << 3 <<  [&] {
-		{lockio x; std::cerr << "i3A\n"; }
+		{lockio x; std::cerr << "i3A " << q << "\n"; }
+		q = 3;
 		usleep(30000);
-		{lockio x; std::cerr << "i3B\n"; }
+		{lockio x; std::cerr << "i3B " << q << "\n"; }
 	}	;
 
 	s.run();

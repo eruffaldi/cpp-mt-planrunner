@@ -11,7 +11,41 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <pthread.h>
 
+#ifdef __APPLE__
+
+#include <mach/mach.h>
+#include <mach/mach_time.h>
+#include <mach/mach_init.h>
+#include <mach/thread_policy.h>
+
+inline int setaffinity(std::thread & t, int idx)
+{
+  int core = 1 << idx;
+  thread_affinity_policy_data_t policy = { core };
+  thread_port_t mach_thread;
+  if(t.native_handle() == 0)
+	  	mach_thread = pthread_mach_thread_np(pthread_self());
+  else
+	  mach_thread	= pthread_mach_thread_np(t.native_handle());
+  //std::cout << "thread id:" << t.get_id() << " native:" << t.native_handle() << " mach:" << mach_thread << std::endl;
+  int r = thread_policy_set(mach_thread, THREAD_AFFINITY_POLICY, (thread_policy_t)&policy, 1);
+  //\std::cout << "\taffinity set result " << r << std::endl;
+  return r;
+}
+
+#else
+
+inline int setaffinity(std::thread & t, int idx)
+{
+	cpu_set_t cpuset;
+	CPU_ZERO(&cpuset);
+	CPU_SET(idx, &cpuset);
+	return pthread_setaffinity_np(t.native_handle(),sizeof(cpu_set_t), &cpuset);
+}
+
+#endif
 
 class Scheduler;
 
@@ -100,6 +134,7 @@ protected:
 
 	struct ThreadInfo
 	{
+		int index;
 		std::vector<ThreadAction> actions; // only RUNTASK,RUNTASKPAR,WAIT,NOTIFY,SLEEP
 		std::thread thread;
 		int allocated = 0;
@@ -153,9 +188,11 @@ inline void Scheduler::threadentry(ThreadInfo & ti)
 				p.fx();
 				break;
 			case Action::WAIT:
+				std::cout << "WAIT tid:" << ti.index << " sem:" << p.id << " ptr:" << semaphores[p.id].get() << std::endl;
 				semaphores[p.id]->wait();
 				break;
 			case Action::NOTIFY:
+				std::cout << "NOTIFY tid:" << ti.index << " sem:" << p.id <<  " ptr:" << semaphores[p.id].get() << std::endl;
 				semaphores[p.id]->notify();
 				break;
 			case Action::SLEEP:
@@ -170,13 +207,21 @@ inline void Scheduler::threadentry(ThreadInfo & ti)
 inline void Scheduler::run()
 {
 	for(auto & s: semaphores)
-		s.reset();
+		if(s)
+			s->reset();
 	// skip first
-	for(auto it = threads.begin()+1; it != threads.end(); it++)
+
+	int idx = 1;
+	for(auto it = threads.begin()+1; it != threads.end(); it++, idx++)
 	{
+		it->index = idx;
 		std::thread o(std::bind(&Scheduler::threadentry,std::ref(*this),std::ref(*it)));
+		setaffinity(o,idx);
 		it->thread.swap(o);
 	}
+	threads[0].index = 0;
+	std::thread x;
+	setaffinity(x,0);
 	threadentry(threads[0]);
 
 	for(auto it = threads.begin()+1; it != threads.end(); it++)
@@ -186,7 +231,7 @@ inline void Scheduler::run()
 
 inline void Scheduler::loaditem(const ScheduleItem & p)
 {
-	std::cout << "option " << (int)p.option << " " << p.tid << " " << p.id << " " << p.params[0] << " " << p.params[1] << std::endl;
+	std::cout << "load " << (int)p.option << " " << p.tid << " " << p.id << " " << p.params[0] << " " << p.params[1] << std::endl;
 	switch(p.option)
 	{
 		case Action::NUMTHREADS:
@@ -195,9 +240,16 @@ inline void Scheduler::loaditem(const ScheduleItem & p)
 			break;
 		case Action::NUMSEMAPHORES:
 			semaphores.resize(p.params[0]);
+			std::cout << "\tNUMSEMAPHORES " << semaphores.size() << std::endl;
 			break;
 		case Action::SEMAPHORE:
-			semaphores[p.id]->set(p.params[0]);
+			if(p.id >= 0 && p.id < semaphores.size())
+			{
+				semaphores[p.id] = std::make_shared<semaphore>(p.params[0]);
+				std::cout << "\tSEMAPHORE " << p.id << " with " << p.params[0] << std::endl;
+			}
+			else
+				std::cout << "\twrong NUMACTIONS\n";
 			break;
 		case Action::NUMACTIONS:
 			if(p.tid >= 0 && p.tid < threads.size())
@@ -227,11 +279,19 @@ inline void Scheduler::loaditem(const ScheduleItem & p)
 			}
 			break;
 		case Action::SLEEP:
-			threads[p.tid].actions.push_back({p.option,p.params[0],std::function<void()>()}); // placeholder
+			if(p.tid >= 0 && p.tid < threads.size())
+			{
+				threads[p.tid].actions.push_back({p.option,p.params[0],std::function<void()>()}); // placeholder
+			}
 			break;
 		case Action::WAIT:
-		case Action::NOTIFY:
-			threads[p.tid].actions.push_back({p.option,p.id,std::function<void()>()}); // placeholder
+		case Action::NOTIFY:	
+			if(p.id >= 0 && p.id < semaphores.size() && semaphores[p.id])
+				threads[p.tid].actions.push_back({p.option,p.id,std::function<void()>()}); // placeholder
+			else
+			{
+				std::cout << "\tbad semaphore WAIT/NOTIFY sem:" << p.id << " for " << p.tid << " " << semaphores[p.id].get() << std::endl;
+			}
 			break;
 	}
 }
