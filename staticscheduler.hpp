@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 #include <pthread.h>
+#include <iomanip>
 
 #ifdef __APPLE__
 
@@ -101,7 +102,7 @@ public:
 class Scheduler
 {
 public:
-	Scheduler(const char *filename) { std::ifstream inf(filename); load(inf); }
+	Scheduler(const char *filename, bool verbose = false): verbose_(verbose) { std::ifstream inf(filename); load(inf); }
 
 	void load(std::ifstream & inf);
 
@@ -113,9 +114,11 @@ public:
 
 	void run();
 
-protected:
-
 	enum class Action  { NUMTHREADS, NUMSEMAPHORES, SEMAPHORE,NUMACTIONS,RUNTASK,RUNTASKPAR,WAIT,NOTIFY,SLEEP}; 
+
+protected:
+	bool verbose_;
+
 
 	struct ScheduleItem
 	{
@@ -209,7 +212,8 @@ inline void Scheduler::run()
 	for(auto & s: semaphores)
 		if(s)
 			s->reset();
-	// skip first
+
+	// TODO affinity: modulo number of cores!
 
 	int idx = 1;
 	for(auto it = threads.begin()+1; it != threads.end(); it++, idx++)
@@ -229,9 +233,20 @@ inline void Scheduler::run()
 
 }
 
+inline const char * enum2str(Scheduler::Action a)
+{
+	// 	enum class Action  { NUMTHREADS, NUMSEMAPHORES, SEMAPHORE,NUMACTIONS,RUNTASK,RUNTASKPAR,WAIT,NOTIFY,SLEEP}; 
+	static const char * x[] = {"THREADS","SEMAPHORES","SEMAPHORE","ACTIONS","TASK","TASKPAR","WAIT","NOTIFY","SLEEP"};
+	if((int)a > sizeof(x)/sizeof(x[0]))
+		return "UNKNOW";
+	else
+		return x[(int)a];
+}
+
 inline void Scheduler::loaditem(const ScheduleItem & p)
 {
-	std::cout << "load " << (int)p.option << " " << p.tid << " " << p.id << " " << p.params[0] << " " << p.params[1] << std::endl;
+	if(verbose_)
+		std::cout << "load " << "(" << (int)p.option << ") " << std::setw(10) << std::left << enum2str(p.option) << " " << p.tid << " " << p.id << " " << p.params[0] << " " << p.params[1] << std::endl;
 	switch(p.option)
 	{
 		case Action::NUMTHREADS:
