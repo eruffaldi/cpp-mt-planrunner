@@ -190,13 +190,12 @@ inline void Scheduler::run()
 		auto r = wp_->call(0, std::bind(&Scheduler::threadentry,std::ref(*this),std::ref(threads[0])));
 		int idx = 1;
 		for(auto it = threads.begin()+1; it != threads.end(); it++, idx++)
-		{
 			wp_->spawn(idx,std::bind(&Scheduler::threadentry,std::ref(*this),std::ref(*it))); // discard future
-		}
-		if(!implicitjoin)
-			wp_->waitallready();
-		r.wait(); // just needs this
 
+		if(!implicitjoin && threads.size() > 1)
+			wp_->waitallready(); // we could have used call for the other n-1 threads, quite similar result
+		else
+			r.wait();
 	}
 	else
 	{
