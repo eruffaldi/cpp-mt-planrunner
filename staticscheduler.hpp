@@ -13,40 +13,7 @@
 #include <sstream>
 #include <pthread.h>
 #include <iomanip>
-
-#ifdef __APPLE__
-
-#include <mach/mach.h>
-#include <mach/mach_time.h>
-#include <mach/mach_init.h>
-#include <mach/thread_policy.h>
-
-inline int setaffinity(std::thread & t, int idx)
-{
-  int core = 1 << idx;
-  thread_affinity_policy_data_t policy = { core };
-  thread_port_t mach_thread;
-  if(t.native_handle() == 0)
-	  	mach_thread = pthread_mach_thread_np(pthread_self());
-  else
-	  mach_thread	= pthread_mach_thread_np(t.native_handle());
-  //std::cout << "thread id:" << t.get_id() << " native:" << t.native_handle() << " mach:" << mach_thread << std::endl;
-  int r = thread_policy_set(mach_thread, THREAD_AFFINITY_POLICY, (thread_policy_t)&policy, 1);
-  //\std::cout << "\taffinity set result " << r << std::endl;
-  return r;
-}
-
-#else
-
-inline int setaffinity(std::thread & t, int idx)
-{
-	cpu_set_t cpuset;
-	CPU_ZERO(&cpuset);
-	CPU_SET(idx, &cpuset);
-	return pthread_setaffinity_np(t.native_handle(),sizeof(cpu_set_t), &cpuset);
-}
-
-#endif
+#include "workerpool.hpp"
 
 class Scheduler;
 
@@ -59,7 +26,9 @@ public:
 
 	void set(int c) { count = count0 = c;}
 
-  void reset() { count = count0; }
+  void reset() { 
+  	std::cout << "semaphore " << this << " reset to " << count0 << std::endl;
+  	count = count0; }
 
   void notify()
   {
@@ -99,10 +68,11 @@ public:
 	void operator << (std::function<void(int from,int to)> fx);  // calls addTask
 };
 
+
 class Scheduler
 {
 public:
-	Scheduler(const char *filename, bool verbose = false): verbose_(verbose) { std::ifstream inf(filename); load(inf); }
+	Scheduler(WorkerPool * wp, const char *filename, bool verbose = false): wp_(wp),verbose_(verbose) { std::ifstream inf(filename); load(inf); }
 
 	void load(std::ifstream & inf);
 
@@ -118,7 +88,7 @@ public:
 
 protected:
 	bool verbose_;
-
+	WorkerPool * wp_;
 
 	struct ScheduleItem
 	{
@@ -146,6 +116,7 @@ protected:
 	void loaditem(const ScheduleItem & item);
 	void threadentry(ThreadInfo & ta); // thread entry point for each of them
 
+	bool implicitjoin = false; // no need for join at the end just wait on first
 	std::vector<ThreadInfo> threads;
 	std::vector<std::shared_ptr<semaphore> > semaphores;
 	std::unordered_map<int,std::pair<int,int> > assigntasks; // setup phase: task -> (thread,action)
@@ -214,22 +185,40 @@ inline void Scheduler::run()
 			s->reset();
 
 	// TODO affinity: modulo number of cores!
-
-	int idx = 1;
-	for(auto it = threads.begin()+1; it != threads.end(); it++, idx++)
+	if(wp_ != 0)
 	{
-		it->index = idx;
-		std::thread o(std::bind(&Scheduler::threadentry,std::ref(*this),std::ref(*it)));
-		setaffinity(o,idx);
-		it->thread.swap(o);
-	}
-	threads[0].index = 0;
-	std::thread x;
-	setaffinity(x,0);
-	threadentry(threads[0]);
+		auto r = wp_->call(0, std::bind(&Scheduler::threadentry,std::ref(*this),std::ref(threads[0])));
+		int idx = 1;
+		for(auto it = threads.begin()+1; it != threads.end(); it++, idx++)
+		{
+			wp_->spawn(idx,std::bind(&Scheduler::threadentry,std::ref(*this),std::ref(*it))); // discard future
+		}
+		if(!implicitjoin)
+			wp_->waitallready();
+		r.wait(); // just needs this
 
-	for(auto it = threads.begin()+1; it != threads.end(); it++)
-		it->thread.join();
+	}
+	else
+	{
+		int idx = 1;
+		for(auto it = threads.begin()+1; it != threads.end(); it++, idx++)
+		{
+			it->index = idx;
+			std::thread o(std::bind(&Scheduler::threadentry,std::ref(*this),std::ref(*it)));
+			setaffinity(o,idx);
+			it->thread.swap(o);
+		}
+		threads[0].index = 0;
+		std::thread x;
+		setaffinity(x,0);
+		threadentry(threads[0]);
+
+		if(!implicitjoin)
+		{
+			for(auto it = threads.begin()+1; it != threads.end(); it++)
+				it->thread.join();
+		}
+	}
 
 }
 
@@ -251,6 +240,7 @@ inline void Scheduler::loaditem(const ScheduleItem & p)
 	{
 		case Action::NUMTHREADS:
 			threads.resize(p.params[0]);
+			implicitjoin = p.params[1];
 			std::cout << "\tNUMTHREADS " << threads.size() << std::endl;
 			break;
 		case Action::NUMSEMAPHORES:
@@ -261,10 +251,10 @@ inline void Scheduler::loaditem(const ScheduleItem & p)
 			if(p.id >= 0 && p.id < semaphores.size())
 			{
 				semaphores[p.id] = std::make_shared<semaphore>(p.params[0]);
-				std::cout << "\tSEMAPHORE " << p.id << " with " << p.params[0] << std::endl;
+				std::cout << "\tSEMAPHORE " << p.id << " with counter " << p.params[0] << " is " << semaphores[p.id].get() << std::endl;
 			}
 			else
-				std::cout << "\twrong NUMACTIONS\n";
+				std::cout << "\twrong tSEMAPHORE\n";
 			break;
 		case Action::NUMACTIONS:
 			if(p.tid >= 0 && p.tid < threads.size())

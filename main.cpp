@@ -10,7 +10,11 @@ struct lockio
 
 int main(int argc, char const *argv[])
 {
-	Scheduler s(argv[1]);
+	WorkerPool wp;
+	std::cerr << "pool created\n";
+	wp.waitallready();
+	std::cerr << "pool ready\n";
+	Scheduler s(argc == 3 ? 0: &wp,argv[1]);
 
 	int q = 0;
 
@@ -35,6 +39,8 @@ int main(int argc, char const *argv[])
 		{lockio x; std::cerr << "i3B " << q << "\n"; }
 	}	;
 
+	std::cerr << "before run\n";
 	s.run();
+	std::cerr << "after run\n";
 	return 0;
 }

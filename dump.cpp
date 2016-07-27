@@ -10,6 +10,6 @@ struct lockio
 
 int main(int argc, char const *argv[])
 {
-	Scheduler s(argv[1],true);
+	Scheduler s(0,argv[1],true);
 	return 0;
 }

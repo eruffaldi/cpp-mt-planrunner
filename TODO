@@ -1,0 +1,21 @@
+
+
+TODO
+- affinity since start
+	linux: 
+		pthread_attr_setaffinity_np for pthread_create
+		sched_getcpu
+		pthread_self() vs native_handle()
+	windows: 
+		createthread SUSPENDED
+	osx:  https://gist.github.com/Coneko/4234842
+		thread_policy_set
+	LINK https://developer.apple.com/library/mac/documentation/Darwin/Conceptual/KernelProgramming/scheduler/scheduler.html
+	CROSS https://github.com/adobe/chromium/tree/master/base/threading
+- automatic single-thread mode
+- skip affinity
+- dynamic mode
+- pass dependency in run file (2 params 64bit gives 128 possible tasks)
+
+Notes
+http://eli.thegreenplace.net/2016/c11-threads-affinity-and-hyperthreading/
