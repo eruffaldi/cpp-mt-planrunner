@@ -39,6 +39,15 @@ int main(int argc, char const *argv[])
 		{lockio x; std::cerr << "i3B " << q << "\n"; }
 	}	;
 
+	// 
+	s << 4 <<  [&] (int from, int to) {
+		{lockio x; std::cerr << "i4A " << q <<  " range " << from << "-" << to << "\n"; }
+		q = 4;
+		usleep(30000);
+		{lockio x; std::cerr << "i4B " << q << " range " << from << "-" << to <<  "\n"; }
+	}	;
+
+
 	std::cerr << "before run\n";
 	s.run();
 	std::cerr << "after run\n";
