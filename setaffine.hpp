@@ -1,4 +1,6 @@
 #pragma once
+
+
 #ifdef __APPLE__
 
 #include <mach/mach.h>
@@ -21,6 +23,14 @@ inline int setaffinity(std::thread & t, int idx)
   return r;
 }
 
+inline int setselfaffinity(int idx)
+{
+  int core = 1 << idx;
+  thread_affinity_policy_data_t policy = { core };
+  thread_port_t mach_thread;
+   return thread_policy_set(math_thread_self(), THREAD_AFFINITY_POLICY, (thread_policy_t)&policy, 1);
+}
+
 #else
 
 inline int setaffinity(std::thread & t, int idx)
@@ -29,6 +39,15 @@ inline int setaffinity(std::thread & t, int idx)
 	CPU_ZERO(&cpuset);
 	CPU_SET(idx, &cpuset);
 	return pthread_setaffinity_np(t.native_handle(),sizeof(cpu_set_t), &cpuset);
+}
+
+inline int setselfaffinity(int idx)
+{
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(idx, &cpuset);
+  return pthread_setaffinity_np(pthread_self(),sizeof(cpu_set_t), &cpuset);
+
 }
 
 #endif

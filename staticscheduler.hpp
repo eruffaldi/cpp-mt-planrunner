@@ -199,24 +199,29 @@ inline void Scheduler::run()
 	}
 	else
 	{
-		int idx = 1;
-		for(auto it = threads.begin()+1; it != threads.end(); it++, idx++)
+		int idx = 0;
+		for(auto it = threads.begin(); it != threads.end(); it++, idx++)
 		{
 			it->index = idx;
 			std::thread o(std::bind(&Scheduler::threadentry,std::ref(*this),std::ref(*it)));
 			setaffinity(o,idx);
 			it->thread.swap(o);
 		}
+		// THERE IS NO WAY TO GET a VALID std::thread from current thread, except using pthread_self/GetCurrentThread/mach_thread_self
+		/*
+		Make current thread the first one of the operations
 		threads[0].index = 0;
-		std::thread x;
-		setaffinity(x,0);
+		setselfaffinity(0);
 		threadentry(threads[0]);
+		*/
 
 		if(!implicitjoin)
 		{
-			for(auto it = threads.begin()+1; it != threads.end(); it++)
+			for(auto it = threads.begin(); it != threads.end(); it++)
 				it->thread.join();
 		}
+		else
+			threads.begin()->join();
 	}
 
 }
